@@ -1,0 +1,8 @@
+streamlit
+google-genai>=1.51.0
+google-auth
+yt-dlp
+opencv-python-headless
+requests
+weasyprint
+pillow
