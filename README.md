@@ -1,6 +1,6 @@
 # **🖤 AI Visual Zine Editor**
 
-**AI Visual Zine Editor** is an interactive, agentic publishing tool that transforms public YouTube videos into curated, multi-page digital magazines through real-time collaboration with Google Gemini.
+**AI Visual Zine Editor** is a Streamlit app that analyzes public YouTube videos, curates editorial frames with Google Gemini, lets users refine the interpretation through chat, and exports the result as a magazine-style zine in HTML, PDF, or Markdown.
 
 Users can paste a public YouTube URL, inspect AI-selected editorial frames, discuss the work with a conversational critic, attach their own reference images, and publish the result as a stylized webzine with optional soundtrack generation and export to **HTML**, **PDF**, and **Markdown**.
 
