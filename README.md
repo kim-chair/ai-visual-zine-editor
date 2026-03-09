@@ -198,7 +198,6 @@ There is no single fixed per-run cost because total usage depends on:
 - source video length
 - number of editorial chat turns
 - number of uploaded reference images
-- whether decorative image generation is enabled
 - whether soundtrack generation is enabled
 
 A single issue usually involves several model calls rather than one request.
