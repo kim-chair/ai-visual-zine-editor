@@ -4,8 +4,6 @@ AI Visual Zine Editor is an interactive publishing tool that turns public YouTub
 
 It analyzes a video with Gemini, extracts candidate frames locally, lets the user refine the editorial angle through chat and uploaded reference images, and publishes the result as a stylized webzine with optional soundtrack generation and export to **HTML**, **PDF**, and **Markdown**.
 
-> Add a screenshot or short GIF here. For this project, one strong visual will explain more than three paragraphs.
-
 ## Why this project
 
 A lot of multimodal demos can summarize a video. Far fewer can turn that material into something that feels **edited**, **authored**, and **publishable**.
