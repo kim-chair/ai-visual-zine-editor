@@ -1,325 +1,241 @@
-# **🖤 AI Visual Zine Editor**
+# 🖤 AI Visual Zine Editor
 
-**AI Visual Zine Editor** is a Streamlit app that analyzes public YouTube videos, curates editorial frames with Google Gemini, lets users refine the interpretation through chat, and exports the result as a magazine-style zine in HTML, PDF, or Markdown.
+AI Visual Zine Editor is an interactive publishing tool that turns public YouTube videos into curated, magazine-style digital issues.
 
-Users can paste a public YouTube URL, inspect AI-selected editorial frames, discuss the work with a conversational critic, attach their own reference images, and publish the result as a stylized webzine with optional soundtrack generation and export to **HTML**, **PDF**, and **Markdown**.
+It analyzes a video with Gemini, extracts candidate frames locally, lets the user refine the editorial angle through chat and uploaded reference images, and publishes the result as a stylized webzine with optional soundtrack generation and export to **HTML**, **PDF**, and **Markdown**.
 
-## **Why this project exists**
+> Add a screenshot or short GIF here. For this project, one strong visual will explain more than three paragraphs.
 
-A lot of multimodal tools can summarize a video, but very few can turn that material into something that feels **edited**, **authored**, and **publishable**.
+## Why this project
 
-This project treats Gemini not just as an analyzer, but as a **collaborative editorial agent**:
+A lot of multimodal demos can summarize a video. Far fewer can turn that material into something that feels **edited**, **authored**, and **publishable**.
 
-* It watches a public YouTube video.  
-* It identifies representative visual moments.  
-* It supports a back-and-forth editorial conversation.  
-* It incorporates user-uploaded reference images into that conversation.  
-* It publishes the final result as a designed magazine-style artifact.
+This project is built around that gap. Instead of treating the model as a one-shot summarizer, it treats Gemini as a collaborative editorial partner that can:
+
+- read a public YouTube video as source material
+- identify representative visual moments
+- support a back-and-forth editorial conversation
+- incorporate user-uploaded reference images
+- publish a designed magazine-style artifact
 
 The goal is to move from **analysis** to **creative editorial production**.
 
-## **Core features**
+## Core features
 
-### **1\. Public YouTube video analysis**
+### 1. Public YouTube video analysis
 
-The app accepts a public YouTube URL and uses **Gemini 3.1 Pro Preview** to:
+The app accepts a public YouTube URL and uses Gemini to:
 
-* classify the source as a music video, fashion show, or other visually driven video,  
-* generate a clean display title,  
-* produce a structured editorial review,  
-* suggest candidate timestamps for representative frames.
+- classify the source material
+- generate a clean display title
+- produce a structured editorial reading
+- suggest candidate timestamps for representative frames
 
-### **2\. Automatic frame extraction and curation**
+### 2. Automatic frame extraction and curation
 
-A local media-processing pipeline uses:
+A local media pipeline uses:
 
-* **yt-dlp** for metadata and video retrieval,  
-* **OpenCV** for frame extraction and quality scoring.
+- `yt-dlp` for metadata and video retrieval
+- OpenCV for frame extraction and quality scoring
 
-The app then selects a small editorial frame set for the issue layout.
+The app then selects a compact editorial frame set for the issue layout.
 
-### **3\. Conversational editorial collaboration**
+### 3. Conversational editorial collaboration
 
-Inside the **Conversation** tab, the user can discuss the current work with Gemini as if it were a co-editor.
+Inside the conversation tab, the user can refine the current interpretation with the model as a co-editor.
 
-The user can ask for:
+That can include:
 
-* deeper symbolism,  
-* comparisons to prior eras or projects,  
-* visual grammar analysis,  
-* ideological or theoretical readings,  
-* layout ideas and editorial emphasis.
+- symbolism and thematic reading
+- comparisons to related works or eras
+- visual grammar analysis
+- ideological or theoretical framing
+- layout emphasis and editorial direction
 
-These conversation turns are carried into the final publishing stage.
+These conversation turns carry forward into the final publishing stage.
 
-### **4\. User-uploaded reference images**
+### 4. User-uploaded reference images
 
-The user can attach their own images in the chat interface.
+The user can attach their own images during the conversation. Those images are:
 
-These uploaded images are:
+- available as context during the editorial dialogue
+- treated as valid layout assets during publishing
+- included in the final issue with labels and captions
 
-* available as context during the editorial conversation,  
-* treated as valid magazine assets during publishing,  
-* included in the final webzine / HTML / PDF layout with labels and captions.
-
-### **5\. Final issue publishing**
+### 5. Final issue publishing
 
 When the user publishes the issue, the app generates:
 
-* a magazine-ready issue title,  
-* a deck,  
-* a cover line,  
-* a pull quote,  
-* a substantially expanded editorial text,  
-* frame captions,  
-* uploaded-image captions,  
-* a full multi-page export layout.
+- an issue title
+- a deck
+- a cover line
+- a pull quote
+- long-form editorial text
+- frame captions
+- uploaded-image captions
+- multi-page export content
 
-### **6\. Generated editorial backdrop**
+### 6. Optional media generation
 
-The issue can generate a decorative visual backdrop using the **Gemini Flash Image** family.
+The issue can also generate:
 
-### **7\. Optional background music**
+- a decorative backdrop image using the Gemini Flash Image family
+- an instrumental soundtrack using Lyria 2
 
-The app can optionally generate an issue soundtrack using **Lyria 2**.
+For music generation, the app first distills editorial intent into a safer generic mood blueprint before sending it to the music model.
 
-To improve reliability, the music prompt is first distilled into a safer generic mood blueprint before the Lyria call is made.
-
-### **8\. Export formats**
+### 7. Multi-format export
 
 The final issue can be exported as:
 
-* **Markdown**  
-* **HTML**  
-* **PDF**
+- **Markdown**
+- **HTML**
+- **PDF**
 
-The PDF export is designed as a magazine-style multi-page layout rather than a plain text printout.
+The PDF is designed as a magazine-style layout rather than a plain text printout.
 
-## **End-to-end workflow**
+## Quick start
 
-1. Paste a public YouTube URL.  
-2. Let the app analyze the source video and select candidate editorial frames.  
-3. Inspect the overview and frame set.  
-4. Use the conversation tab to refine the editorial angle.  
-5. Upload additional reference images if needed.  
-6. Publish the final webzine.  
-7. Optionally generate background music.  
-8. Download the issue as HTML, PDF, or Markdown.
+### Prerequisites
 
-## **Tech stack**
+- Python 3.9+
+- A Google Cloud project with Vertex AI enabled
+- Google Cloud authentication through Application Default Credentials
+- WeasyPrint system dependencies if you want PDF export
 
-### **Frontend / app layer**
+### Installation
 
-* **Streamlit**
-
-### **Media processing**
-
-* **yt-dlp**  
-* **OpenCV**  
-* **Pillow**
-
-### **AI / Google Cloud**
-
-* **Vertex AI**  
-* **Gemini 3.1 Pro Preview** for video analysis, conversational editing, and publishing  
-* **Gemini Flash Image** family for decorative backdrop generation  
-* **Lyria 2** for optional soundtrack generation
-
-### **Export**
-
-* **HTML/CSS** export  
-* **WeasyPrint** for PDF rendering
-
-## **Models used**
-
-### **Text / reasoning**
-
-* gemini-3.1-pro-preview
-
-Used for:
-
-* video analysis,  
-* frame-selection reasoning,  
-* conversational editorial responses,  
-* final issue generation,  
-* music prompt blueprinting.
-
-### **Image generation**
-
-The app tries a small fallback chain for decorative backdrop generation:
-
-* gemini-3.1-flash-image  
-* gemini-3.1-flash-image-preview  
-* gemini-2.5-flash-image
-
-### **Music generation**
-
-* lyria-002
-
-Used for optional instrumental background music generation.
-
-## **Data sources and assets**
-
-This project uses the following data sources and user-provided assets:
-
-1. **Public YouTube URLs** supplied by the user  
-2. **YouTube metadata and video retrieval** via yt-dlp  
-3. **Frames extracted from the source video** via OpenCV  
-4. **User-uploaded conversation images** supplied directly inside the chat interface  
-5. **AI-generated decorative backdrops** generated during publishing  
-6. **AI-generated soundtrack** generated during publishing when enabled
-
-No external private dataset is required for the core workflow.
-
-## **Repository structure**
-
-ai-visual-zine-editor/  
-├── app.py  
-├── requirements.txt  
-├── README.md  
-├── architecture\_diagram\_cleaner.md  
-└── (optional) exported screenshots / demo assets
-
-## **🚀 Local Setup Instructions**
-
-To run this project locally and test the multimodal pipeline:
-
-### **1\. Clone the repository**
-
-git clone \[https://github.com/kim-chair/ai-visual-zine-editor\](https://github.com/kim-chair/ai-visual-zine-editor)  
+```bash
+git clone https://github.com/kim-chair/ai-visual-zine-editor.git
 cd ai-visual-zine-editor
+pip install -r requirements.txt
 
-### **2\. Install dependencies**
-
-Make sure you have **Python 3.9+** installed.
-
-pip install \-r requirements.txt
-
-**Note:** For PDF export to work, your system must also have the platform dependencies required by **WeasyPrint** installed.
-
-WeasyPrint installation guide: https://doc.courtbouillon.org/weasyprint/stable/first\_steps.html
-
-The HTML / webzine view works even if PDF export is unavailable.
-
-### **3\. Authenticate with Google Cloud**
-
-This app relies on Google Cloud Vertex AI. You must authenticate your local environment with a Google Cloud account that has Vertex AI access enabled.
-
+# Authenticate with Google Cloud
 gcloud auth application-default login
 
-### **4\. Confirm or edit your Google Cloud project settings**
-
-The current app.py includes a project ID constant. If you are running this on your own Google Cloud project, update the relevant constants in app.py:
-
-* PROJECT\_ID  
-* LOCATION  
-* LYRIA\_LOCATION
-
-### **5\. Run the Streamlit app**
-
+# Run the app
 streamlit run app.py
+```
 
-If the streamlit command is not available directly, run:
+If `streamlit` is not available on your `PATH`, run:
 
-python \-m streamlit run app.py
+```bash
+python -m streamlit run app.py
+```
 
-## **Google Cloud services used**
+### Configure Google Cloud
 
-This project uses Google Cloud services in the following ways:
+The current code keeps Google Cloud settings directly in `app.py`.
+Before running on your own project, update these constants:
 
-* **Vertex AI** for Gemini and Lyria model inference  
-* **Application Default Credentials** for local authenticated access  
-* **Cloud Run** as the intended backend deployment target for hosted execution
+- `PROJECT_ID`
+- `LOCATION`
+- `LYRIA_LOCATION`
 
-## **Architecture**
+## Tech stack
 
-Please refer to the architecture diagram in this repository:
+### App layer
 
-* architecture\_diagram\_cleaner.md
+- Streamlit
+
+### Media processing
+
+- `yt-dlp`
+- OpenCV
+- Pillow
+
+### AI and cloud
+
+- Vertex AI
+- Google Gen AI SDK
+- Gemini for video analysis, editorial chat, publishing, and music blueprinting
+- Gemini Flash Image family for decorative backdrop generation
+- Lyria 2 for optional soundtrack generation
+
+### Export
+
+- HTML/CSS
+- WeasyPrint for PDF rendering
+
+## Current model configuration
+
+As currently configured in the repository:
+
+- `gemini-3.1-pro-preview` for video analysis, conversational editing, issue generation, and music-prompt blueprinting
+- `gemini-3.1-flash-image`, `gemini-3.1-flash-image-preview`, and `gemini-2.5-flash-image` as a fallback chain for decorative backdrop generation
+- `lyria-002` for optional music generation
+
+## Architecture
+
+![Architecture diagram](./mermaid-diagram.png)
 
 High-level flow:
 
-1. The user submits a public YouTube URL.  
-2. The Streamlit app orchestrates media processing and AI calls.  
-3. yt-dlp and OpenCV retrieve and score candidate frames.  
-4. Gemini performs video analysis and editorial reasoning.  
-5. The user can continue refining the angle in conversation.  
-6. Uploaded images become valid layout assets.  
-7. The final publisher generates text, captions, and issue structure.  
-8. Gemini Flash Image generates an editorial backdrop.  
-9. Lyria optionally generates an issue soundtrack.  
-10. The exporter produces HTML, PDF, and Markdown outputs.
+1. The user submits a public YouTube URL.
+2. The Streamlit app fetches metadata and analyzes the source with Gemini.
+3. `yt-dlp` downloads the video locally and OpenCV scores candidate frames.
+4. The model selects the editorial frame set.
+5. The conversation layer refines the critical angle and can ingest uploaded reference images.
+6. The publishing layer generates issue text, captions, and layout content.
+7. Optional media generation produces a decorative backdrop and soundtrack.
+8. The exporter writes HTML, PDF, and Markdown outputs.
 
-## **What makes this project multimodal and agentic**
+## Why this counts as multimodal and agentic
 
-This project is not a single prompt wrapped in a UI.
+This is not just a single prompt wrapped in a UI.
 
-It combines:
+The system:
 
-* **video understanding**,  
-* **image-aware conversation**,  
-* **frame selection**,  
-* **editorial reasoning**,  
-* **image generation**,  
-* **music generation**,  
-* **document export**.
+- interprets multimodal video input
+- proposes editorial structure
+- accepts follow-up human guidance
+- incorporates new visual evidence
+- publishes a cohesive artifact combining text, image, and optional audio
 
-It is agentic because the system does more than answer one request:
+## Cost notes
 
-* it interprets video input,  
-* proposes editorial structure,  
-* accepts follow-up human guidance,  
-* incorporates new visual evidence,  
-* and publishes a final artifact.
+This project is **usage-priced** through Google Cloud Vertex AI.
+There is no single fixed per-run cost because total usage depends on:
 
-## **Learnings**
+- source video length
+- number of editorial chat turns
+- number of uploaded reference images
+- whether decorative image generation is enabled
+- whether soundtrack generation is enabled
+
+A single issue usually involves several model calls rather than one request.
+For demos, hackathons, or public deployment, treat cost as variable and check current Vertex AI pricing before estimating per-issue spend.
+
+A practical deployment tip: set quotas, budgets, and spending alerts before exposing the app publicly.
+
+## Learnings
 
 Some practical lessons from building this project:
 
-### **1\. The best multimodal UX is staged**
+- **The best multimodal UX is staged.** Separating analysis, conversation, and publication created a more understandable and stable workflow.
+- **User-uploaded images improve grounding.** When users can attach their own images, the editorial conversation becomes more concrete and the final layout feels more intentional.
+- **Music prompting benefits from abstraction.** Passing raw editorial text into music generation is less reliable than first distilling it into generic stylistic descriptors.
 
-Trying to do everything in one step makes the system feel slow and fragile. Separating analysis, conversation, and publication produced a more understandable workflow.
+## Limitations
 
-### **2\. User-uploaded images dramatically improve grounding**
+- Works best with public YouTube URLs and visually rich source material
+- Processing time grows with video length, resolution, and the number of uploaded images
+- Frame selection is heuristic and may miss the most editorially useful moment
+- Background music generation depends on Lyria availability and may fail under quota or policy constraints
+- PDF export depends on WeasyPrint and its system-level dependencies
+- The PDF export is visual-only; interactive audio remains in the app and HTML export
 
-When users can attach their own images, the editorial conversation becomes more concrete and the final layout feels more intentional.
+## Suggested test flow
 
-### **3\. Export matters as much as inference**
+A solid demo run looks like this:
 
-A strong final artifact changes how the system is perceived. HTML/PDF output makes the project feel publishable rather than merely analytical.
+1. Paste a public YouTube music video or fashion-show URL.
+2. Review the initial editorial analysis.
+3. Upload a few reference images in the conversation tab.
+4. Ask for a sharper editorial angle or layout emphasis.
+5. Publish the final webzine.
+6. Export the issue as HTML or PDF.
 
-### **4\. Music prompting benefits from abstraction**
+## License
 
-Passing raw editorial text into music generation is less reliable than first distilling the text into generic stylistic descriptors.
-
-## **Limitations**
-
-* Processing time can increase depending on video length, video resolution, and number of uploaded images.  
-* Background music generation depends on Lyria availability and may fail under quota, policy, or request constraints.  
-* PDF export depends on WeasyPrint and its system-level dependencies.  
-* The frame-selection pipeline is heuristic and may not always choose the most editorially ideal frame.  
-* The app works best with public YouTube URLs and visually rich source material.
-
-## **Suggested test flow**
-
-A good test run is:
-
-1. Paste a public YouTube music video or fashion show URL.  
-2. Review the AI-generated editorial analysis.  
-3. Upload several reference images in the conversation tab.  
-4. Ask for a sharper editorial angle.  
-5. Publish the final webzine.  
-6. Download the HTML or PDF issue.
-
-## **Acknowledgements**
-
-Built with:
-
-* Streamlit  
-* Google Vertex AI  
-* Gemini 3.1 Pro Preview  
-* Gemini Flash Image  
-* Lyria 2  
-* yt-dlp  
-* OpenCV  
-* WeasyPrint
+This repository is released under the MIT License.
