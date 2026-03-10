@@ -1,4 +1,3 @@
-﻿
 import base64
 import hashlib
 import html
@@ -227,14 +226,16 @@ def parse_json_from_model_output(raw_text: Optional[str]) -> Dict[str, Any]:
             return {}
 
     try:
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
+        return parsed if isinstance(parsed, dict) else {}
     except json.JSONDecodeError:
         pass
 
     json_obj_match = re.search(r"\{[\s\S]*\}", cleaned)
     if json_obj_match:
         try:
-            return json.loads(json_obj_match.group(0))
+            parsed = json.loads(json_obj_match.group(0))
+            return parsed if isinstance(parsed, dict) else {}
         except json.JSONDecodeError:
             return {}
 
@@ -411,7 +412,7 @@ def fallback_display_title(metadata: Dict[str, Any]) -> str:
     if not cleaned:
         return "Untitled Video"
 
-    parts = re.split(r"\s[-–—:]\s", cleaned, maxsplit=1)
+    parts = re.split(r"\s[-\u2013\u2014:]\s", cleaned, maxsplit=1)
     if len(parts) == 2 and len(parts[0].split()) <= 6:
         left = parts[0].strip()
         right = parts[1].strip().strip('"').strip("'")
@@ -422,6 +423,8 @@ def fallback_display_title(metadata: Dict[str, Any]) -> str:
         return f"{uploader} - {cleaned}"
 
     return cleaned
+
+
 def clean_body_markdown(text: str) -> str:
     text = (text or "").strip()
 
@@ -1002,6 +1005,9 @@ Reply so far:
         if "MAX_TOKENS" not in finish_reason.upper():
             break
 
+    if not full_reply.strip():
+        yield "I had trouble generating that reply right now. Please rephrase your request and try again."
+
     return
 
 # ==========================================
@@ -1111,6 +1117,7 @@ Instructions:
 14) visual_prompt must describe a text-free decorative backdrop image for the final issue.
 15) The visual prompt should lean sleek, editorial, high-fashion, digitally polished, and magazine-like.
 16) Do not mention being an AI.
+17) Write strictly from a professional editorial perspective (e.g., using "we" or third-person). DO NOT use "you" or "your", and NEVER refer back to the user, the chat history, or the prompt itself.
 Return JSON only.
 """
 
@@ -1138,6 +1145,20 @@ Return JSON only.
     )
 
     data = parse_json_from_model_output(response.text)
+    if not isinstance(data, dict):
+        raise RuntimeError("Publishing model returned invalid JSON payload.")
+
+    required_fields = ("issue_title", "deck", "cover_line", "pull_quote", "final_markdown", "visual_prompt")
+    missing_fields = [
+        field
+        for field in required_fields
+        if not isinstance(data.get(field), str) or not data[field].strip()
+    ]
+    if missing_fields:
+        raise RuntimeError(
+            "Publishing model output is incomplete. Missing/invalid fields: "
+            + ", ".join(missing_fields)
+        )
 
     frame_captions = data.get("frame_captions", [])
     cleaned_captions: List[Dict[str, Any]] = []
@@ -1354,18 +1375,24 @@ Rules:
         "arrangement": (data.get("arrangement") or "slow build, elegant texture shifts, and a clean cinematic finish").strip(),
     }
 
-
 def _call_lyria_request(prompt: str, negative_prompt: str) -> bytes:
-    creds, _ = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
-    if not creds.valid:
-        creds.refresh(GoogleAuthRequest())
+    if not PROJECT_ID:
+        raise RuntimeError("PROJECT_ID is not configured. Set PROJECT_ID to use Lyria music generation.")
 
-    endpoint = (
-        f"https://{LYRIA_LOCATION}-aiplatform.googleapis.com/v1/"
-        f"projects/{PROJECT_ID}/locations/{LYRIA_LOCATION}/publishers/google/models/{LYRIA_MODEL_ID}:predict"
-    )
+    try:
+        creds, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Could not load Google credentials for Lyria: {exc}")
+
+    try:
+        if not creds.valid:
+            creds.refresh(GoogleAuthRequest())
+    except Exception as exc:
+        raise RuntimeError(f"Google credentials could not be refreshed for Lyria: {exc}")
+
+    endpoint = f"https://{LYRIA_LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LYRIA_LOCATION}/publishers/google/models/{LYRIA_MODEL_ID}:predict"
 
     payload = {
         "instances": [
@@ -1379,27 +1406,35 @@ def _call_lyria_request(prompt: str, negative_prompt: str) -> bytes:
         },
     }
 
-    response = requests.post(
-        endpoint,
-        headers={
-            "Authorization": f"Bearer {creds.token}",
-            "Content-Type": "application/json",
-            "x-goog-user-project": PROJECT_ID,
-        },
-        json=payload,
-        timeout=180,
-    )
+    try:
+        response = requests.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {creds.token}",
+                "Content-Type": "application/json",
+                "x-goog-user-project": PROJECT_ID,
+            },
+            json=payload,
+            timeout=180,
+        )
+    except requests.Timeout as exc:
+        raise RuntimeError("Lyria request timed out. Please try again.") from exc
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Lyria request failed before receiving a response: {exc}") from exc
 
     if not response.ok:
         try:
-            payload = response.json()
-            error = payload.get("error", {}) if isinstance(payload, dict) else {}
-            message = error.get("message") or json.dumps(payload, ensure_ascii=False)
+            payload_err = response.json()
+            error = payload_err.get("error", {}) if isinstance(payload_err, dict) else {}
+            message = error.get("message") or json.dumps(payload_err, ensure_ascii=False)
         except Exception:
             message = response.text.strip() or "Unknown error"
         raise RuntimeError(f"Lyria request failed ({response.status_code}): {message}")
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError(f"Lyria returned a non-JSON response: {exc}") from exc
 
     def _extract_b64_audio(prediction: Any) -> Optional[str]:
         if not isinstance(prediction, dict):
@@ -1593,7 +1628,7 @@ def _build_frame_card_html(frame: Dict[str, Any], idx: int, caption_map: Dict[in
     label = html.escape(caption_item.get("label", f"Frame {idx + 1}"))
     caption = html.escape(caption_item.get("caption", ""))
     timestamp = frame.get("timestamp_sec")
-    timestamp_text = "Source frame" if timestamp is None else f"Source frame · {timestamp}s"
+    timestamp_text = "Source frame" if timestamp is None else f"Source frame - {timestamp}s"
 
     return f"""
     <figure class="frame-card">
@@ -1756,7 +1791,7 @@ def build_issue_html(
 
     cover_uploaded_note = ""
     if uploaded_images:
-        cover_uploaded_note = f" · Includes {len(uploaded_images)} uploaded reference image(s)"
+        cover_uploaded_note = f" - Includes {len(uploaded_images)} uploaded reference image(s)"
 
     pages_html = f"""
     <section class="sheet">
@@ -1768,7 +1803,7 @@ def build_issue_html(
           <div class="cover-line">{html.escape(issue.get('cover_line', ''))}</div>
           <div class="pull-quote">{html.escape(issue.get('pull_quote', ''))}</div>
           {audio_html}
-          <div class="cover-meta">Generated by the AI Visual Zine Editor · PDF magazine layout{cover_uploaded_note}</div>
+          <div class="cover-meta">Generated by the AI Visual Zine Editor - PDF magazine layout{cover_uploaded_note}</div>
         </div>
         <div class="cover-visuals">
           {backdrop_html}
@@ -2192,12 +2227,14 @@ def html_to_pdf_bytes(issue_html: str) -> Optional[bytes]:
     if WeasyHTML is None:
         return None
 
-    return WeasyHTML(string=issue_html).write_pdf(
-        optimize_images=True,
-        jpeg_quality=88,
-        presentational_hints=True,
-    )
-
+    try:
+        return WeasyHTML(string=issue_html).write_pdf(
+            optimize_images=True,
+            jpeg_quality=88,
+            presentational_hints=True,
+        )
+    except Exception:
+        return None
 # ==========================================
 # 11. UI
 # ==========================================
@@ -2369,10 +2406,10 @@ if st.session_state.analysis and st.session_state.metadata:
                 }
 
                 for idx, item in enumerate(candidate_frames):
-                    label = f"{item['timestamp_sec']}s · score {item['score']}"
+                    label = f"{item['timestamp_sec']}s - score {item['score']}"
                     signature = (item.get("timestamp_sec"), len(item.get("jpg_bytes", b"")))
                     if signature in selected_signature:
-                        label += " · selected"
+                        label += " - selected"
 
                     with preview_cols[idx % 3]:
                         st.image(BytesIO(item["jpg_bytes"]), width="stretch")
@@ -2547,7 +2584,7 @@ if st.session_state.analysis and st.session_state.metadata:
                 if visual_bytes:
                     st.image(
                         BytesIO(visual_bytes),
-                        caption=f"Generated editorial backdrop · {image_model_id}",
+                        caption=f"Generated editorial backdrop - {image_model_id}",
                         width="stretch",
                     )
                 else:
@@ -2652,11 +2689,8 @@ if st.session_state.analysis and st.session_state.metadata:
                 )
                 pdf_bytes = html_to_pdf_bytes(pdf_issue_html)
 
-                preview_pages = 4 + math.ceil(len(uploaded_images) / UPLOADED_IMAGES_PER_PAGE) if uploaded_images else 4
-                preview_height = max(2200, 830 * preview_pages)
-
                 with st.expander("Preview export layout"):
-                    html_iframe(issue_html, height=preview_height, scrolling=True)
+                    html_iframe(issue_html, height=800, scrolling=True)
 
                 download_cols = st.columns(3)
 
@@ -2694,12 +2728,3 @@ if st.session_state.analysis and st.session_state.metadata:
                     st.caption("HTML keeps the optional soundtrack player. PDF exports as a multi-page magazine layout, including gallery pages for the uploaded reference images.")
                 else:
                     st.caption("HTML keeps the optional soundtrack player. PDF exports as a four-page magazine-style layout.")
-
-
-
-
-
-
-
-
-
