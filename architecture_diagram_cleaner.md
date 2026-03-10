@@ -6,22 +6,24 @@ flowchart LR
   classDef ai fill:#27ae60,stroke:#27ae60,stroke-width:2px,color:#fff;
   classDef output fill:#d35400,stroke:#d35400,stroke-width:2px,color:#fff;
   classDef ext fill:#f2f2f2,stroke:#999,stroke-width:1px,color:#111;
+  classDef note fill:#fffbea,stroke:#d4b106,stroke-width:1px,color:#111;
 
   U((User / Judge)):::user
   Y["Public YouTube URL"]:::ext
   X["Uploaded Reference Images"]:::ext
 
-  subgraph GC["Google Cloud"]
+  subgraph APP["Application Layer (Current Demo Build / Local Streamlit App)"]
     direction LR
+    UI["Streamlit Web App UI"]:::frontend
+    ORCH["Python App Orchestrator"]:::frontend
+    DL["yt-dlp<br/>Metadata + Video Download"]:::processing
+    CV["OpenCV<br/>Frame Extraction + Quality Scoring"]:::processing
+    EXP["HTML / PDF / Markdown Exporter"]:::output
+  end
 
-    subgraph CR["Cloud Run Service"]
-      direction LR
-      UI["Streamlit Web App UI"]:::frontend
-      ORCH["Python App Orchestrator"]:::frontend
-      DL["yt-dlp<br/>Metadata + Video Download"]:::processing
-      CV["OpenCV<br/>Frame Extraction + Quality Scoring"]:::processing
-      EXP["HTML / PDF / Markdown Exporter"]:::output
-    end
+  subgraph GC["Google Cloud"]
+    direction TB
+    AUTH["GCP Project + Vertex AI Auth (ADC)"]:::note
 
     subgraph VA["Vertex AI"]
       direction TB
@@ -49,6 +51,13 @@ flowchart LR
   G2 --> ORCH
   G1 --> G3
   G2 --> G3
+
+  ORCH -. uses .-> AUTH
+  AUTH --> G1
+  AUTH --> G2
+  AUTH --> G3
+  AUTH --> GI
+  AUTH --> LY
 
   G3 --> GI
   G3 --> LY
