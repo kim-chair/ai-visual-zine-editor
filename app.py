@@ -290,21 +290,26 @@ def normalize_uploaded_image(uploaded_file: Any) -> Optional[Dict[str, Any]]:
 
             out = BytesIO()
             img.save(out, format="JPEG", quality=88, optimize=True)
+            normalized_bytes = out.getvalue()
+            sha1_hex = hashlib.sha1(normalized_bytes).hexdigest()
 
             return {
+                "asset_id": f"UPL_{sha1_hex[:10].upper()}",
                 "name": file_name,
                 "mime_type": "image/jpeg",
-                "data": out.getvalue(),
+                "data": normalized_bytes,
                 "width": img.width,
                 "height": img.height,
-                "sha1": hashlib.sha1(out.getvalue()).hexdigest(),
+                "sha1": sha1_hex,
             }
     except (UnidentifiedImageError, OSError, ValueError):
+        sha1_hex = hashlib.sha1(raw).hexdigest()
         return {
+            "asset_id": f"UPL_{sha1_hex[:10].upper()}",
             "name": file_name,
             "mime_type": mime_type,
             "data": raw,
-            "sha1": hashlib.sha1(raw).hexdigest(),
+            "sha1": sha1_hex,
         }
 
 
@@ -326,6 +331,7 @@ def collect_conversation_images(
             seen_hashes.add(image_hash)
             image_entries.append({
                 "role": message.get("role", "user"),
+                "asset_id": image.get("asset_id") or f"UPL_{image_hash[:10].upper()}",
                 "name": image.get("name", "reference image"),
                 "mime_type": image.get("mime_type", "image/jpeg"),
                 "data": data,
@@ -353,7 +359,11 @@ def collect_recent_image_parts(
         if not data:
             continue
         parts.append(
-            f"Reference image {idx} from the conversation ({image.get('role', 'user')} attachment: {image.get('name', 'image')}). This image is already available inside the app and can be placed directly into the final magazine layout. Use it as visual evidence when relevant."
+            f"Reference image {idx} from the conversation "
+            f"(asset_id: {image.get('asset_id', 'unknown')}; "
+            f"{image.get('role', 'user')} attachment: {image.get('name', 'image')}). "
+            "This image is already available inside the app and can be placed directly into the final magazine layout. "
+            "Use it as visual evidence when relevant."
         )
         parts.append(Part.from_bytes(data=data, mime_type=mime_type))
 
@@ -442,6 +452,137 @@ def clean_body_markdown(text: str) -> str:
         text = text[min(starts):]
 
     return text.strip()
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def describe_uploaded_asset(image_bytes: bytes, mime_type: str) -> Dict[str, str]:
+    schema = {
+        "type": "object",
+        "properties": {
+            "short_label": {"type": "string"},
+            "base_caption": {"type": "string"},
+        },
+        "required": ["short_label", "base_caption"],
+    }
+
+    prompt = """
+Describe this single uploaded fashion/editorial reference image.
+
+Rules:
+1) Stay grounded only in what is visibly present in the image.
+2) Do not infer brand, person identity, collection name, or backstory unless explicitly visible in the image itself.
+3) short_label must be 2 to 5 words.
+4) base_caption must be 1 sentence and concrete.
+Return JSON only.
+"""
+
+    try:
+        response = get_client().models.generate_content(
+            model=TEXT_MODEL_ID,
+            contents=[
+                Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                prompt,
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json",
+                response_schema=schema,
+                thinking_config=types.ThinkingConfig(
+                    thinking_level=types.ThinkingLevel.LOW
+                ),
+                max_output_tokens=250,
+            ),
+        )
+        data = parse_json_from_model_output(response.text)
+    except Exception:
+        data = {}
+
+    short_label = (data.get("short_label") or "").strip()
+    base_caption = (data.get("base_caption") or "").strip()
+
+    return {
+        "short_label": short_label or "Reference Look",
+        "base_caption": base_caption or "A user-uploaded visual reference included in the issue.",
+    }
+
+
+def build_uploaded_asset_registry(uploaded_images: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    assets: List[Dict[str, Any]] = []
+
+    for idx, image in enumerate(uploaded_images):
+        data = image.get("data", b"")
+        if not data:
+            continue
+
+        mime_type = image.get("mime_type", "image/jpeg")
+        sha1_hex = image.get("sha1") or hashlib.sha1(data).hexdigest()
+        asset_id = image.get("asset_id") or f"UPL_{sha1_hex[:10].upper()}"
+        description = describe_uploaded_asset(data, mime_type)
+
+        assets.append({
+            **image,
+            "asset_id": asset_id,
+            "short_label": (description.get("short_label") or f"Uploaded Look {idx + 1}").strip(),
+            "base_caption": (description.get("base_caption") or "A user-uploaded visual reference included in the issue.").strip(),
+        })
+
+    return assets
+
+
+def build_uploaded_asset_manifest(uploaded_assets: List[Dict[str, Any]]) -> str:
+    if not uploaded_assets:
+        return "No uploaded conversation images."
+
+    lines = ["Uploaded asset registry:"]
+    for idx, asset in enumerate(uploaded_assets):
+        lines.append(
+            f"- uploaded_index={idx} | asset_id={asset.get('asset_id', 'unknown')} | "
+            f"file_name={asset.get('name', 'Uploaded image')} | "
+            f"short_label={asset.get('short_label', 'Reference Look')} | "
+            f"grounded_caption={asset.get('base_caption', 'A user-uploaded visual reference.')}"
+        )
+    return "\n".join(lines)
+
+
+def stabilize_uploaded_image_notes(
+    uploaded_assets: List[Dict[str, Any]],
+    uploaded_image_notes: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    raw_notes_by_index: Dict[int, Dict[str, str]] = {}
+
+    for item in uploaded_image_notes or []:
+        try:
+            idx = int(item.get("index", -1))
+        except Exception:
+            idx = -1
+
+        if not (0 <= idx < len(uploaded_assets)):
+            continue
+
+        raw_notes_by_index[idx] = {
+            "label": (item.get("label") or "").strip(),
+            "caption": (item.get("caption") or "").strip(),
+        }
+
+    stabilized: List[Dict[str, Any]] = []
+
+    for idx, asset in enumerate(uploaded_assets):
+        raw_note = raw_notes_by_index.get(idx, {})
+        editorial_note = raw_note.get("caption", "").strip()
+
+        if editorial_note and editorial_note == asset.get("base_caption", "").strip():
+            editorial_note = ""
+
+        stabilized.append({
+            "index": idx,
+            "asset_id": asset.get("asset_id", f"UPL_{idx + 1:02d}"),
+            "label": asset.get("short_label", f"Uploaded Look {idx + 1}"),
+            "caption": asset.get("base_caption", "A user-uploaded visual reference included in the issue."),
+            "source_name": asset.get("name", "Uploaded image"),
+            "editorial_note": editorial_note,
+        })
+
+    return stabilized
 
 # ==========================================
 # 5. Metadata
@@ -1024,7 +1165,9 @@ def publish_issue(
         messages,
         max_images=MAX_MAGAZINE_UPLOADED_IMAGES,
     )
-    num_uploaded_images = len(uploaded_images)
+    uploaded_assets = build_uploaded_asset_registry(uploaded_images)
+    num_uploaded_images = len(uploaded_assets)
+    uploaded_asset_manifest = build_uploaded_asset_manifest(uploaded_assets)
     transcript = build_conversation_transcript(messages, limit=20)
 
     schema = {
@@ -1094,6 +1237,9 @@ Available visual assets:
 - selected_source_frames: {num_frames}
 - uploaded_conversation_images: {num_uploaded_images}
 
+Uploaded asset registry:
+{uploaded_asset_manifest}
+
 Instructions:
 1) Integrate the strongest ideas from the conversation, but stay grounded in the source video.
 2) If the conversation added a specific critical angle, let that angle shape the issue.
@@ -1113,11 +1259,12 @@ Instructions:
 10) The overall written issue should feel at least roughly twice as substantial as a short review.
 11) frame_captions must provide one label and one caption for each provided source frame.
 12) uploaded_image_notes must provide one label and one caption for each uploaded conversation image index whenever uploaded images are available.
-13) Treat uploaded conversation images as real magazine assets that can be placed directly into the final layout. Do not describe them as unavailable.
-14) visual_prompt must describe a text-free decorative backdrop image for the final issue.
-15) The visual prompt should lean sleek, editorial, high-fashion, digitally polished, and magazine-like.
-16) Do not mention being an AI.
-17) Write strictly from a professional editorial perspective (e.g., using "we" or third-person). DO NOT use "you" or "your", and NEVER refer back to the user, the chat history, or the prompt itself.
+13) Each uploaded_image_notes.index must match the uploaded_index values from the uploaded asset registry above.
+14) Treat uploaded conversation images as real magazine assets that can be placed directly into the final layout. Do not describe them as unavailable.
+15) visual_prompt must describe a text-free decorative backdrop image for the final issue.
+16) The visual prompt should lean sleek, editorial, high-fashion, digitally polished, and magazine-like.
+17) Do not mention being an AI.
+18) Write strictly from a professional editorial perspective (e.g., using "we" or third-person). DO NOT use "you" or "your", and NEVER refer back to the user, the chat history, or the prompt itself.
 Return JSON only.
 """
 
@@ -1189,32 +1336,10 @@ Return JSON only.
     cleaned_captions.sort(key=lambda x: x["index"])
 
     uploaded_image_notes = data.get("uploaded_image_notes", [])
-    cleaned_uploaded_notes: List[Dict[str, Any]] = []
-
-    for item in uploaded_image_notes:
-        try:
-            idx = int(item.get("index", 0))
-        except Exception:
-            idx = 0
-        if not (0 <= idx < num_uploaded_images):
-            continue
-        cleaned_uploaded_notes.append({
-            "index": idx,
-            "label": (item.get("label") or f"Uploaded Look {idx + 1}").strip(),
-            "caption": (item.get("caption") or "").strip(),
-        })
-
-    cleaned_uploaded_notes.sort(key=lambda x: x["index"])
-    seen_uploaded_indices = {item["index"] for item in cleaned_uploaded_notes}
-    for idx in range(num_uploaded_images):
-        if idx not in seen_uploaded_indices:
-            cleaned_uploaded_notes.append({
-                "index": idx,
-                "label": f"Uploaded Look {idx + 1}",
-                "caption": "A conversation image included as a visual reference in the final issue.",
-            })
-
-    cleaned_uploaded_notes.sort(key=lambda x: x["index"])
+    cleaned_uploaded_notes = stabilize_uploaded_image_notes(
+        uploaded_assets=uploaded_assets,
+        uploaded_image_notes=uploaded_image_notes,
+    )
 
     return {
         "issue_title": (data.get("issue_title") or analysis["display_title"]).strip(),
@@ -1225,6 +1350,7 @@ Return JSON only.
         "final_markdown": (data.get("final_markdown") or "").strip(),
         "frame_captions": cleaned_captions,
         "uploaded_image_notes": cleaned_uploaded_notes,
+        "uploaded_asset_registry": uploaded_assets,
     }
 
 def generate_issue_visual(
