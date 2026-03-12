@@ -211,8 +211,6 @@ def build_conversation_transcript(messages: List[Dict[str, Any]], limit: int = 1
 
     return "\n".join(lines)
 
-
-
 def parse_json_from_model_output(raw_text: Optional[str]) -> Dict[str, Any]:
     cleaned = (raw_text or "").strip()
     if not cleaned:
@@ -359,11 +357,35 @@ def collect_recent_image_parts(
         if not data:
             continue
         parts.append(
+            f"Reference image {idx} from the conversation ({image.get('role', 'user')} attachment: {image.get('name', 'image')}). This image is already available inside the app and can be placed directly into the final magazine layout. Use it as visual evidence when relevant."
+        )
+        parts.append(Part.from_bytes(data=data, mime_type=mime_type))
+
+    return parts
+
+
+
+def collect_publish_image_parts(
+    messages: List[Dict[str, Any]],
+    max_images: int = MAX_CHAT_CONTEXT_IMAGES,
+) -> List[Any]:
+    image_entries = collect_conversation_images(messages, max_images=max_images)
+    image_entries = build_uploaded_asset_registry(image_entries)
+
+    parts: List[Any] = []
+    for idx, image in enumerate(image_entries, start=1):
+        data = image.get("data", b"")
+        mime_type = image.get("mime_type", "image/jpeg")
+        if not data:
+            continue
+        short_label = image.get("short_label", f"Reference image {idx}")
+        grounded_caption = image.get("base_caption", "A conversation image available inside the app.")
+        parts.append(
             f"Reference image {idx} from the conversation "
-            f"(asset_id: {image.get('asset_id', 'unknown')}; "
-            f"{image.get('role', 'user')} attachment: {image.get('name', 'image')}). "
+            f"(editorial label: {short_label}; {image.get('role', 'user')} attachment: {image.get('name', 'image')}). "
+            f"Grounded description: {grounded_caption} "
             "This image is already available inside the app and can be placed directly into the final magazine layout. "
-            "Use it as visual evidence when relevant."
+            "Use it as visual evidence when relevant. If you mention it in your reply, use the human-readable label rather than any internal identifier."
         )
         parts.append(Part.from_bytes(data=data, mime_type=mime_type))
 
@@ -465,7 +487,7 @@ def describe_uploaded_asset(image_bytes: bytes, mime_type: str) -> Dict[str, str
         "required": ["short_label", "base_caption"],
     }
 
-    prompt = """
+    primary_prompt = """
 Describe this single uploaded fashion/editorial reference image.
 
 Rules:
@@ -473,15 +495,30 @@ Rules:
 2) Do not infer brand, person identity, collection name, or backstory unless explicitly visible in the image itself.
 3) short_label must be 2 to 5 words.
 4) base_caption must be 1 sentence and concrete.
+5) Do not use generic labels such as "Reference Look", "Uploaded Look", "Reference Image", or "Image".
+6) Do not use generic captions such as "A user-uploaded visual reference included in the issue.".
+7) Make the label and caption specific enough to distinguish this image from similar runway looks.
 Return JSON only.
 """
 
-    try:
+    rescue_prompt = """
+The previous description was too generic or incomplete.
+Re-describe this single uploaded fashion/editorial reference image more concretely.
+
+Rules:
+1) short_label must be 2 to 5 words.
+2) base_caption must be 1 sentence.
+3) Mention visible garments, layering, color, material, silhouette, or standout detail.
+4) Do not use placeholders like "Reference Look", "Uploaded Look", or "A user-uploaded visual reference included in the issue.".
+Return JSON only.
+"""
+
+    def _run(prompt_text: str) -> Dict[str, Any]:
         response = get_client().models.generate_content(
             model=TEXT_MODEL_ID,
             contents=[
                 Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                prompt,
+                prompt_text,
             ],
             config=types.GenerateContentConfig(
                 temperature=0.1,
@@ -493,18 +530,35 @@ Return JSON only.
                 max_output_tokens=250,
             ),
         )
-        data = parse_json_from_model_output(response.text)
+        return parse_json_from_model_output(response.text)
+
+    data: Dict[str, Any] = {}
+    try:
+        data = _run(primary_prompt)
     except Exception:
         data = {}
 
     short_label = (data.get("short_label") or "").strip()
     base_caption = (data.get("base_caption") or "").strip()
 
+    if _is_generic_uploaded_label(short_label) or _is_generic_uploaded_caption(base_caption):
+        try:
+            rescue_data = _run(rescue_prompt)
+        except Exception:
+            rescue_data = {}
+
+        rescue_label = (rescue_data.get("short_label") or "").strip()
+        rescue_caption = (rescue_data.get("base_caption") or "").strip()
+
+        if rescue_label and not _is_generic_uploaded_label(rescue_label):
+            short_label = rescue_label
+        if rescue_caption and not _is_generic_uploaded_caption(rescue_caption):
+            base_caption = rescue_caption
+
     return {
         "short_label": short_label or "Reference Look",
         "base_caption": base_caption or "A user-uploaded visual reference included in the issue.",
     }
-
 
 def build_uploaded_asset_registry(uploaded_images: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     assets: List[Dict[str, Any]] = []
@@ -536,12 +590,130 @@ def build_uploaded_asset_manifest(uploaded_assets: List[Dict[str, Any]]) -> str:
     lines = ["Uploaded asset registry:"]
     for idx, asset in enumerate(uploaded_assets):
         lines.append(
-            f"- uploaded_index={idx} | asset_id={asset.get('asset_id', 'unknown')} | "
+            f"- uploaded_index={idx} | "
+            f"editorial_label={asset.get('short_label', 'Reference Look')} | "
             f"file_name={asset.get('name', 'Uploaded image')} | "
-            f"short_label={asset.get('short_label', 'Reference Look')} | "
             f"grounded_caption={asset.get('base_caption', 'A user-uploaded visual reference.')}"
         )
     return "\n".join(lines)
+
+
+
+def humanize_uploaded_image_name(name: str) -> str:
+    raw = Path(str(name or "")).stem.strip() or str(name or "").strip()
+    raw = raw.replace("_", " ").replace("-", " ")
+    raw = re.sub(r"\s+", " ", raw).strip()
+    if not raw:
+        return "Uploaded Look"
+
+    tokens: List[str] = []
+    for token in raw.split():
+        if re.fullmatch(r"[A-Z0-9]+", token):
+            tokens.append(token)
+        elif re.fullmatch(r"[a-z0-9.]+", token):
+            tokens.append(token.title())
+        else:
+            tokens.append(token)
+    cleaned = " ".join(tokens).strip()
+    return cleaned or "Uploaded Look"
+
+
+def build_lightweight_asset_label_items(images: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    items: List[Dict[str, str]] = []
+    seen_asset_ids = set()
+
+    for idx, image in enumerate(images or []):
+        data = image.get("data", b"")
+        sha1_hex = image.get("sha1") or (hashlib.sha1(data).hexdigest() if data else "")
+        asset_id = str(image.get("asset_id") or (f"UPL_{sha1_hex[:10].upper()}" if sha1_hex else "")).strip()
+        if not asset_id or asset_id in seen_asset_ids:
+            continue
+        seen_asset_ids.add(asset_id)
+
+        label = str(image.get("short_label") or "").strip()
+        if not label or _is_generic_uploaded_label(label):
+            label = humanize_uploaded_image_name(image.get("name", ""))
+
+        items.append({
+            "asset_id": asset_id,
+            "label": label or f"Uploaded Look {idx + 1}",
+        })
+
+    return items
+def _normalize_uploaded_note_text(text: str) -> str:
+    cleaned = (text or "").strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip(" -:;,.\t\n\r")
+
+
+
+def _is_generic_uploaded_label(text: str) -> bool:
+    normalized = _normalize_uploaded_note_text(text).lower()
+    if not normalized:
+        return True
+    if re.fullmatch(r"uploaded look\s*\d*", normalized):
+        return True
+    generic_labels = {
+        "reference look",
+        "uploaded look",
+        "uploaded image",
+        "reference image",
+        "image",
+        "look",
+    }
+    return normalized in generic_labels
+
+
+
+def _is_generic_uploaded_caption(text: str) -> bool:
+    normalized = _normalize_uploaded_note_text(text).lower()
+    if not normalized:
+        return True
+    generic_captions = {
+        "a user-uploaded visual reference included in the issue",
+        "a user uploaded visual reference included in the issue",
+        "a user-uploaded visual reference",
+        "a user uploaded visual reference",
+        "a conversation image available inside the app",
+        "a visual reference included in the issue",
+    }
+    if normalized in generic_captions:
+        return True
+    if normalized.startswith("a user-uploaded visual reference"):
+        return True
+    if normalized.startswith("a user uploaded visual reference"):
+        return True
+    return False
+
+
+
+def _sanitize_visible_uploaded_text(text: str, asset: Dict[str, Any], fallback_label: str) -> str:
+    cleaned = _normalize_uploaded_note_text(text)
+    if not cleaned:
+        return ""
+
+    asset_id = str(asset.get("asset_id") or "").strip()
+    label = fallback_label or str(asset.get("short_label") or "Reference Look").strip()
+    source_name = str(asset.get("name") or "").strip()
+
+    replacements = [
+        (r"\(\s*\{\s*asset_id\s*:\s*[^}]+\}\s*\)", f"({label})"),
+        (r"\{\s*asset_id\s*:\s*[^}]+\}", label),
+        (r"\basset_id\s*[:=]\s*[^\s,.;)]+", label),
+    ]
+    for pattern, repl in replacements:
+        cleaned = re.sub(pattern, repl, cleaned, flags=re.IGNORECASE)
+
+    if asset_id:
+        cleaned = re.sub(rf"\b{re.escape(asset_id)}\b", label, cleaned, flags=re.IGNORECASE)
+    if source_name:
+        cleaned = re.sub(rf"\b{re.escape(source_name)}\b", label, cleaned, flags=re.IGNORECASE)
+
+    cleaned = re.sub(r"\bUPL_[A-Z0-9]+\b", label, cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip(" -:;,.\t\n\r")
+
 
 
 def stabilize_uploaded_image_notes(
@@ -568,21 +740,115 @@ def stabilize_uploaded_image_notes(
 
     for idx, asset in enumerate(uploaded_assets):
         raw_note = raw_notes_by_index.get(idx, {})
-        editorial_note = raw_note.get("caption", "").strip()
+        base_label = str(asset.get("short_label") or f"Uploaded Look {idx + 1}").strip()
+        base_caption = str(
+            asset.get("base_caption")
+            or "A user-uploaded visual reference included in the issue."
+        ).strip()
 
-        if editorial_note and editorial_note == asset.get("base_caption", "").strip():
-            editorial_note = ""
+        ai_label = _sanitize_visible_uploaded_text(raw_note.get("label", ""), asset, base_label)
+        ai_caption = _sanitize_visible_uploaded_text(raw_note.get("caption", ""), asset, base_label)
+
+        final_label = ai_label if ai_label and not _is_generic_uploaded_label(ai_label) else base_label
+        final_caption = ai_caption if ai_caption and not _is_generic_uploaded_caption(ai_caption) else base_caption
+
+        editorial_note = ""
+        if final_caption != base_caption:
+            editorial_note = final_caption
 
         stabilized.append({
             "index": idx,
             "asset_id": asset.get("asset_id", f"UPL_{idx + 1:02d}"),
-            "label": asset.get("short_label", f"Uploaded Look {idx + 1}"),
-            "caption": asset.get("base_caption", "A user-uploaded visual reference included in the issue."),
+            "label": final_label,
+            "caption": final_caption,
             "source_name": asset.get("name", "Uploaded image"),
             "editorial_note": editorial_note,
         })
 
     return stabilized
+
+
+def build_asset_label_items(asset_items: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    normalized: List[Dict[str, str]] = []
+    for idx, item in enumerate(asset_items or []):
+        asset_id = str(item.get("asset_id") or "").strip()
+        if not asset_id:
+            continue
+        label = str(
+            item.get("label")
+            or item.get("short_label")
+            or item.get("name")
+            or f"Uploaded Look {idx + 1}"
+        ).strip()
+        normalized.append({"asset_id": asset_id, "label": label or f"Uploaded Look {idx + 1}"})
+    return normalized
+
+
+def rewrite_asset_ids_in_text(
+    text: str,
+    asset_items: List[Dict[str, Any]],
+) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return cleaned
+
+    for item in build_asset_label_items(asset_items):
+        asset_id = item["asset_id"]
+        label = item["label"]
+        parenthetical_label = f"({label})"
+
+        cleaned = re.sub(
+            rf"\(\s*\{{\s*asset_id\s*:\s*{re.escape(asset_id)}\s*\}}\s*\)",
+            parenthetical_label,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            rf"\(\s*asset_id\s*[:=]\s*{re.escape(asset_id)}\s*\)",
+            parenthetical_label,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            rf"\{{\s*asset_id\s*:\s*{re.escape(asset_id)}\s*\}}",
+            label,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            rf"\basset_id\s*[:=]\s*{re.escape(asset_id)}\b",
+            label,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            rf"\b{re.escape(asset_id)}\b",
+            label,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    cleaned = re.sub(r"\[\s*\]", "", cleaned)
+    cleaned = re.sub(r"\{\s*\}", "", cleaned)
+    cleaned = re.sub(r"\(\(([^()]+)\)\)", r"(\1)", cleaned)
+    cleaned = re.sub(r"\s+,", ",", cleaned)
+    cleaned = re.sub(r"\s+\.", ".", cleaned)
+    cleaned = re.sub(r"\s+;", ";", cleaned)
+    cleaned = re.sub(r"\s+:", ":", cleaned)
+    cleaned = re.sub(r"\(\s+", "(", cleaned)
+    cleaned = re.sub(r"\s+\)", ")", cleaned)
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+
+    return cleaned.strip()
+
+
+def rewrite_asset_ids_in_markdown(
+    final_markdown: str,
+    uploaded_image_notes: List[Dict[str, Any]],
+) -> str:
+    return rewrite_asset_ids_in_text(final_markdown, uploaded_image_notes)
 
 # ==========================================
 # 5. Metadata
@@ -1260,16 +1526,19 @@ Instructions:
 11) frame_captions must provide one label and one caption for each provided source frame.
 12) uploaded_image_notes must provide one label and one caption for each uploaded conversation image index whenever uploaded images are available.
 13) Each uploaded_image_notes.index must match the uploaded_index values from the uploaded asset registry above.
-14) Treat uploaded conversation images as real magazine assets that can be placed directly into the final layout. Do not describe them as unavailable.
-15) visual_prompt must describe a text-free decorative backdrop image for the final issue.
-16) The visual prompt should lean sleek, editorial, high-fashion, digitally polished, and magazine-like.
-17) Do not mention being an AI.
-18) Write strictly from a professional editorial perspective (e.g., using "we" or third-person). DO NOT use "you" or "your", and NEVER refer back to the user, the chat history, or the prompt itself.
+14) uploaded_image_notes.label must be concrete and image-specific. Never use placeholder labels such as "Reference Look", "Uploaded Look", "Reference Image", or "Image".
+15) uploaded_image_notes.caption must be concrete and image-specific. Never use placeholder captions such as "A user-uploaded visual reference included in the issue." or similarly generic fallback phrasing.
+16) Treat uploaded conversation images as real magazine assets that can be placed directly into the final layout. Do not describe them as unavailable.
+17) visual_prompt must describe a text-free decorative backdrop image for the final issue.
+18) The visual prompt should lean sleek, editorial, high-fashion, digitally polished, and magazine-like.
+19) Do not mention being an AI.
+20) Write strictly from a professional editorial perspective (e.g., using "we" or third-person). DO NOT use "you" or "your", and NEVER refer back to the user, the chat history, or the prompt itself.
+21) If you refer to uploaded conversation images in final_markdown, use only their human-readable labels. Never expose internal asset identifiers, registry tokens, or placeholder syntax. Do not write strings such as asset_id, UPL_..., or any brace-wrapped asset placeholder.
 Return JSON only.
 """
 
     contents: List[Any] = [prompt]
-    contents.extend(collect_recent_image_parts(messages, max_images=MAX_CHAT_CONTEXT_IMAGES))
+    contents.extend(collect_publish_image_parts(messages, max_images=MAX_CHAT_CONTEXT_IMAGES))
 
     for idx, frame in enumerate(selected_frames):
         ts = frame.get("timestamp_sec")
@@ -1340,6 +1609,10 @@ Return JSON only.
         uploaded_assets=uploaded_assets,
         uploaded_image_notes=uploaded_image_notes,
     )
+    cleaned_final_markdown = rewrite_asset_ids_in_markdown(
+        (data.get("final_markdown") or "").strip(),
+        cleaned_uploaded_notes,
+    )
 
     return {
         "issue_title": (data.get("issue_title") or analysis["display_title"]).strip(),
@@ -1347,7 +1620,7 @@ Return JSON only.
         "cover_line": (data.get("cover_line") or "").strip(),
         "pull_quote": (data.get("pull_quote") or "").strip(),
         "visual_prompt": (data.get("visual_prompt") or "").strip(),
-        "final_markdown": (data.get("final_markdown") or "").strip(),
+        "final_markdown": cleaned_final_markdown,
         "frame_captions": cleaned_captions,
         "uploaded_image_notes": cleaned_uploaded_notes,
         "uploaded_asset_registry": uploaded_assets,
