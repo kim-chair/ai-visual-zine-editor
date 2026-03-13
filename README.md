@@ -99,6 +99,7 @@ The PDF is designed as a magazine-style layout rather than a plain text printout
 - Python 3.9+
 - A Google Cloud project with Vertex AI enabled
 - Google Cloud authentication through Application Default Credentials
+- `ffmpeg` (recommended system dependency for reliable local video processing with `yt-dlp`)
 - WeasyPrint system dependencies if you want PDF export
 
 ### Installation
@@ -132,6 +133,8 @@ Before running on your own project, update these constants:
 
 **Built with the Google Gen AI Python SDK (`google-genai`) on Google Cloud Vertex AI.**
 
+> Note: Most Gemini features use the Google Gen AI SDK on Vertex AI, while Lyria 2 soundtrack generation is sent to the Vertex AI predict endpoint directly using Google authentication.
+
 ## Tech stack
 
 ### App layer
@@ -147,10 +150,10 @@ Before running on your own project, update these constants:
 ### AI and cloud
 
 - Vertex AI
-- Google Gen AI SDK
+- Google Gen AI SDK for Gemini calls on Vertex AI
 - Gemini for video analysis, editorial chat, publishing, and music blueprinting
 - Gemini Flash Image family for decorative backdrop generation
-- Lyria 2 for optional soundtrack generation
+- Lyria 2 via the Vertex AI predict endpoint for optional soundtrack generation
 
 ### Export
 
@@ -175,7 +178,7 @@ High-level flow:
 2. The Streamlit app fetches metadata and analyzes the source with Gemini.
 3. `yt-dlp` downloads the video locally and OpenCV scores candidate frames.
 4. The model selects the editorial frame set.
-5. The conversation layer refines the critical angle and can ingest uploaded reference images.
+5. The conversation layer refines the critical angle and can ingest uploaded reference images, which are normalized and carried forward as reusable editorial assets.
 6. The publishing layer generates issue text, captions, and layout content.
 7. Optional media generation produces a decorative backdrop and soundtrack.
 8. The exporter writes HTML, PDF, and Markdown outputs.
@@ -234,7 +237,6 @@ A solid demo run looks like this:
 4. Ask for a sharper editorial angle or layout emphasis.
 5. Publish the final webzine.
 6. Export the issue as HTML or PDF.
-
 ## License
 
 This repository is released under the MIT License.
