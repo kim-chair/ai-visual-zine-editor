@@ -2,7 +2,7 @@
 
 AI Visual Zine Editor is an interactive publishing tool that turns public YouTube videos into curated, magazine-style digital issues.
 
-It analyzes a video with Gemini, extracts candidate frames locally, lets the user refine the editorial angle through chat and uploaded reference images, and publishes the result as a stylized webzine with optional soundtrack generation and export to **HTML**, **PDF**, and **Markdown**.
+It analyzes a video with Gemini, extracts and scores candidate frames locally, lets the user refine the editorial angle through chat and uploaded reference images, and publishes the result as a stylized webzine with optional soundtrack generation and export to **HTML**, **PDF**, and **Markdown**.
 
 ## Why this project
 
@@ -33,10 +33,10 @@ The app accepts a public YouTube URL and uses Gemini to:
 
 A local media pipeline uses:
 
-- `yt-dlp` for metadata and video retrieval
-- OpenCV for frame extraction and quality scoring
+- `yt-dlp` for metadata retrieval and local video download
+- OpenCV for candidate frame extraction and quality scoring
 
-The app then selects a compact editorial frame set for the issue layout.
+Gemini then selects a compact editorial frame set for the issue layout.
 
 ### 3. Conversational editorial collaboration
 
@@ -54,9 +54,17 @@ These conversation turns carry forward into the final publishing stage.
 
 ### 4. User-uploaded reference images
 
-The user can attach their own images during the conversation. Those images are:
+The user can attach their own images during the conversation. Supported formats include:
+
+- `png`
+- `jpg`
+- `jpeg`
+- `webp`
+
+Those images are:
 
 - available as context during the editorial dialogue
+- normalized and stored as reusable editorial assets
 - treated as valid layout assets during publishing
 - included in the final issue with labels and captions
 
@@ -90,7 +98,7 @@ The final issue can be exported as:
 - **HTML**
 - **PDF**
 
-The PDF is designed as a magazine-style layout rather than a plain text printout.
+The PDF is designed as a magazine-style layout rather than a plain text printout. Interactive audio remains in the app and HTML export; the PDF export is visual-only.
 
 ## Quick start
 
@@ -98,6 +106,7 @@ The PDF is designed as a magazine-style layout rather than a plain text printout
 
 - Python 3.9+
 - A Google Cloud project with Vertex AI enabled
+- Google Cloud CLI (`gcloud`) installed
 - Google Cloud authentication through Application Default Credentials
 - `ffmpeg` (recommended system dependency for reliable local video processing with `yt-dlp`)
 - WeasyPrint system dependencies if you want PDF export
@@ -122,6 +131,8 @@ If `streamlit` is not available on your `PATH`, run:
 python -m streamlit run app.py
 ```
 
+> Note: HTML and Markdown export still work even if PDF export is unavailable. Only PDF depends on WeasyPrint and its system-level dependencies.
+
 ### Configure Google Cloud
 
 The current code keeps Google Cloud settings directly in `app.py`.
@@ -131,9 +142,9 @@ Before running on your own project, update these constants:
 - `LOCATION`
 - `LYRIA_LOCATION`
 
-**Built with the Google Gen AI Python SDK (`google-genai`) on Google Cloud Vertex AI.**
+> Note: Depending on your project, region, and model access, you may also need to update the configured Gemini and Lyria model IDs in `app.py`.
 
-> Note: Most Gemini features use the Google Gen AI SDK on Vertex AI, while Lyria 2 soundtrack generation is sent to the Vertex AI predict endpoint directly using Google authentication.
+**Built as a local Streamlit app with Vertex AI as the model backend. Gemini calls use the Google Gen AI SDK (`google-genai`), while Lyria 2 is invoked through the Vertex AI predict endpoint.**
 
 ## Tech stack
 
@@ -175,9 +186,9 @@ As currently configured in the repository:
 High-level flow:
 
 1. The user submits a public YouTube URL.
-2. The Streamlit app fetches metadata and analyzes the source with Gemini.
-3. `yt-dlp` downloads the video locally and OpenCV scores candidate frames.
-4. The model selects the editorial frame set.
+2. The Streamlit app reads source metadata and sends the public video source to Gemini for editorial analysis.
+3. `yt-dlp` downloads the video locally and OpenCV extracts and scores candidate frames.
+4. Gemini selects the editorial frame set.
 5. The conversation layer refines the critical angle and can ingest uploaded reference images, which are normalized and carried forward as reusable editorial assets.
 6. The publishing layer generates issue text, captions, and layout content.
 7. Optional media generation produces a decorative backdrop and soundtrack.
@@ -237,6 +248,7 @@ A solid demo run looks like this:
 4. Ask for a sharper editorial angle or layout emphasis.
 5. Publish the final webzine.
 6. Export the issue as HTML or PDF.
+
 ## License
 
 This repository is released under the MIT License.
