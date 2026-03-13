@@ -130,6 +130,8 @@ Before running on your own project, update these constants:
 - `LOCATION`
 - `LYRIA_LOCATION`
 
+**Built with the Google Gen AI Python SDK (`google-genai`) on Google Cloud Vertex AI.**
+
 ## Tech stack
 
 ### App layer
@@ -165,7 +167,7 @@ As currently configured in the repository:
 
 ## Architecture
 
-![Architecture diagram](./mermaid-diagram.png)
+![Architecture diagram](./architecture-diagram.png)
 
 High-level flow:
 
