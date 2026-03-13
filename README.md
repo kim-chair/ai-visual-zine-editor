@@ -181,7 +181,7 @@ As currently configured in the repository:
 
 ## Architecture
 
-![Architecture diagram](./architecture-diagram.png)
+![architecture-diagram](./architecture-diagram.png)
 
 High-level flow:
 
