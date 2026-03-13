@@ -9,34 +9,45 @@ flowchart LR
 
   U((User / Judge)):::user
   Y["Public YouTube URL"]:::ext
-  R["Uploaded Reference Images"]:::ext
+  R["Uploaded Reference Images<br/>(chat attachments)"]:::ext
 
   subgraph APP["Application Layer (Local Streamlit App)"]
     direction LR
     UI["Streamlit Web App UI"]:::frontend
-    ORCH["Python Orchestrator"]:::frontend
+    ORCH["Python Orchestrator<br/>(single-file handlers + session state)"]:::frontend
 
-    subgraph LOCAL["Local Media + Layout Pipeline"]
+    subgraph LOCAL["Local Media / Asset / Export Pipeline"]
       direction TB
-      DL["yt-dlp<br/>Metadata + Video Download"]:::processing
-      CV["OpenCV<br/>Candidate Frame Extraction + Quality Scoring"]:::processing
-      ASSET["Uploaded Image Normalization<br/>+ Asset Handling"]:::processing
-      EXP["HTML / PDF / Markdown Export"]:::output
+      META["yt-dlp<br/>Metadata Only"]:::processing
+      DL["yt-dlp<br/>Video Download"]:::processing
+      CV["OpenCV<br/>Candidate Frame Extraction<br/>+ Quality Scoring"]:::processing
+      SF["Selected Editorial<br/>Frame Set"]:::processing
+      ASSET["Uploaded Image Normalization<br/>+ Asset Collection"]:::processing
+      MD["Markdown Export Builder"]:::output
+      HTML["HTML Layout Builder"]:::output
+      PDF["PDF Render<br/>(WeasyPrint)"]:::output
     end
   end
 
-  subgraph GC["Google Cloud"]
+  subgraph GC["Google Cloud / Vertex AI"]
     direction TB
-    SDK["Google Gen AI SDK (`google-genai`)<br/>on Vertex AI"]:::note
+    SDK["Google Gen AI SDK (google-genai)<br/>Vertex AI client"]:::note
 
-    subgraph VA["Gemini + Media Models"]
+    subgraph GM["Gemini / Image Models"]
       direction TB
       G1["Gemini 3.1 Pro Preview<br/>Source Video Analysis"]:::ai
       G2["Gemini 3.1 Pro Preview<br/>Editorial Frame Selection"]:::ai
-      G3["Gemini 3.1 Pro Preview<br/>Editorial Conversation"]:::ai
-      G4["Gemini 3.1 Pro Preview<br/>Final Issue Publisher"]:::ai
-      GI["Gemini Flash Image<br/>Backdrop Generation"]:::ai
-      LY["Lyria 2<br/>Optional Soundtrack Generation"]:::ai
+      G3["Gemini 3.1 Pro Preview<br/>Uploaded Asset Description"]:::ai
+      G4["Gemini 3.1 Pro Preview<br/>Editorial Conversation"]:::ai
+      G5["Gemini 3.1 Pro Preview<br/>Final Issue Publisher"]:::ai
+      GI["Gemini Flash Image family<br/>Backdrop Generation"]:::ai
+      GB["Gemini 3.1 Pro Preview<br/>BGM Prompt Blueprint"]:::ai
+    end
+
+    subgraph LYR["Separate Vertex Predict path"]
+      direction TB
+      AUTH["google.auth<br/>OAuth token"]:::note
+      LY["Lyria 2 (lyria-002)<br/>Optional Soundtrack Generation"]:::ai
     end
   end
 
@@ -45,41 +56,65 @@ flowchart LR
   R --> UI
 
   UI --> ORCH
+  ORCH --> META
   ORCH --> DL
-  DL --> CV
   ORCH --> ASSET
+  ORCH --> G1
 
-  DL --> G1
+  Y -.-> G1
+  META --> G1
+
+  META --> G4
+  META --> G5
+
+  G1 --> CV
+  DL --> CV
+
   CV --> G2
+  G1 --> G2
 
-  G1 --> ORCH
-  G2 --> ORCH
-
-  ORCH --> G3
-  ASSET --> G3
-  G1 --> G3
-  G2 --> G3
+  CV --> SF
+  G2 --> SF
 
   ORCH --> G4
-  ASSET --> G4
   G1 --> G4
-  G2 --> G4
-  G3 --> G4
+  ASSET --> G4
+  G4 --> UI
 
-  SDK -. enables .-> G1
-  SDK -. enables .-> G2
-  SDK -. enables .-> G3
-  SDK -. enables .-> G4
-  SDK -. enables .-> GI
-  SDK -. enables .-> LY
+  ASSET --> G3
+  ASSET --> G5
+  G3 --> G5
+  ORCH --> G5
+  G1 --> G5
+  SF --> G5
+  G4 --> G5
 
-  G4 --> GI
-  G4 --> LY
+  G5 --> GI
+  G5 --> GB
+  AUTH --> LY
+  GB --> LY
 
-  ORCH --> EXP
-  G4 --> EXP
-  GI --> EXP
-  LY --> EXP
+  G5 --> MD
+  G1 --> MD
+  SF --> MD
 
-  EXP --> UI
+  G5 --> HTML
+  GI --> HTML
+  LY --> HTML
+  SF --> HTML
+  ASSET --> HTML
+
+  HTML --> PDF
+
+  MD --> UI
+  HTML --> UI
+  PDF --> UI
   UI --> U
+
+  SDK -.-> G1
+  SDK -.-> G2
+  SDK -.-> G3
+  SDK -.-> G4
+  SDK -.-> G5
+  SDK -.-> GI
+  SDK -.-> GB
